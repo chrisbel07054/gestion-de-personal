@@ -1,0 +1,210 @@
+// Esquema PostgreSQL — migrado desde el modelo de documentos de MongoDB.
+// IDs: se usa Int autoincremental (más simple de explicar/depurar que UUID).
+// Los campos "estado" se mantienen como String (no enum) para no romper
+// comparaciones existentes en el código ('Activo', 'Pendiente', 'Aprobada', etc.)
+// que usan distintos vocabularios según el módulo.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "darwin-arm64", "windows"]
+}
+
+enum Rol {
+  ADMINISTRADOR
+  RRHH
+  OPERADOR
+}
+
+model Usuario {
+  id           Int      @id @default(autoincrement())
+  usuario      String   @unique
+  passwordHash String
+  nombre       String
+  correo       String?
+  rol          Rol
+  estado       String   @default("Activo")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  asistenciasRegistradas Asistencia[]   @relation("RegistradoPor")
+  observaciones          Observacion[]  @relation("AutorObservacion")
+  auditorias             Auditoria[]
+  vacacionesAprobadas    Vacacion[]     @relation("AprobadoPorVacacion")
+  reposicionesAprobadas  ReposoMedico[] @relation("AprobadoPorReposo")
+  permisosAprobados      Permiso[]      @relation("AprobadoPorPermiso")
+
+  @@map("usuarios")
+}
+
+model Departamento {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique
+  descripcion String?
+  responsable String?
+  estado      String   @default("Activo")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  empleados Empleado[]
+
+  @@map("departamentos")
+}
+
+model Cargo {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique
+  descripcion String?
+  estado      String   @default("Activo")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  empleados Empleado[]
+
+  @@map("cargos")
+}
+
+model Empleado {
+  id              Int       @id @default(autoincrement())
+  cedula          String    @unique
+  nombre          String
+  apellido        String?
+  fechaNacimiento DateTime?
+  sexo            String?
+  telefono        String?
+  correo          String?
+  direccion       String?
+  departamentoId  Int
+  departamento    Departamento @relation(fields: [departamentoId], references: [id])
+  cargoId         Int
+  cargo           Cargo        @relation(fields: [cargoId], references: [id])
+  fechaIngreso    DateTime?
+  estado          String    @default("Activo")
+  foto            String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  horario       Horario?
+  asistencias   Asistencia[]
+  vacaciones    Vacacion[]
+  reposos       ReposoMedico[]
+  permisos      Permiso[]
+  observaciones Observacion[]
+
+  @@map("empleados")
+}
+
+model Horario {
+  id            Int      @id @default(autoincrement())
+  empleadoId    Int      @unique
+  empleado      Empleado @relation(fields: [empleadoId], references: [id])
+  horaEntrada   String
+  horaSalida    String
+  diasLaborales String[]
+  diasLibres    String[]
+  vigente       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("horarios")
+}
+
+model Asistencia {
+  id                Int      @id @default(autoincrement())
+  empleadoId        Int
+  empleado          Empleado @relation(fields: [empleadoId], references: [id])
+  fecha             String   // YYYY-MM-DD
+  horaEntrada       String?
+  horaSalida        String?
+  estado            String?  // Puntual | Retardo | Ausente
+  observacion       String?
+  registradoPorId   Int?
+  registradoPor     Usuario? @relation("RegistradoPor", fields: [registradoPorId], references: [id])
+  minutosTrabajados Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([empleadoId, fecha])
+  @@map("asistencias")
+}
+
+model Vacacion {
+  id            Int      @id @default(autoincrement())
+  empleadoId    Int
+  empleado      Empleado @relation(fields: [empleadoId], references: [id])
+  desde         String   // YYYY-MM-DD
+  hasta         String   // YYYY-MM-DD
+  motivo        String?
+  estado        String   @default("Pendiente") // Pendiente | Aprobada | Rechazada
+  aprobadoPorId Int?
+  aprobadoPor   Usuario? @relation("AprobadoPorVacacion", fields: [aprobadoPorId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("vacaciones")
+}
+
+model ReposoMedico {
+  id            Int      @id @default(autoincrement())
+  empleadoId    Int
+  empleado      Empleado @relation(fields: [empleadoId], references: [id])
+  fechaInicio   String
+  fechaFin      String
+  diagnostico   String?
+  documento     String?
+  estado        String   @default("Pendiente") // Pendiente | Aprobado | Rechazado
+  aprobadoPorId Int?
+  aprobadoPor   Usuario? @relation("AprobadoPorReposo", fields: [aprobadoPorId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("reposos_medicos")
+}
+
+model Permiso {
+  id            Int      @id @default(autoincrement())
+  empleadoId    Int
+  empleado      Empleado @relation(fields: [empleadoId], references: [id])
+  fecha         String   // YYYY-MM-DD
+  tipo          String
+  motivo        String?
+  estado        String   @default("Pendiente") // Pendiente | Aprobado | Rechazado
+  aprobadoPorId Int?
+  aprobadoPor   Usuario? @relation("AprobadoPorPermiso", fields: [aprobadoPorId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("permisos")
+}
+
+model Observacion {
+  id         Int      @id @default(autoincrement())
+  empleadoId Int
+  empleado   Empleado @relation(fields: [empleadoId], references: [id])
+  texto      String
+  fecha      DateTime @default(now())
+  autorId    Int
+  autor      Usuario  @relation("AutorObservacion", fields: [autorId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("observaciones")
+}
+
+model Auditoria {
+  id         Int      @id @default(autoincrement())
+  usuarioId  Int?
+  usuario    Usuario? @relation(fields: [usuarioId], references: [id])
+  accion     String
+  entidad    String
+  entidadId  Int?
+  detalle    Json?
+  fecha      DateTime @default(now())
+  ip         String?
+
+  @@map("auditorias")
+}
